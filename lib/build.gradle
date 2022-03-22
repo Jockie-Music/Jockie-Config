@@ -23,6 +23,14 @@ java {
 	withJavadocJar()
 }
 
+publishing {
+    publications {
+        maven(MavenPublication) {
+			from components.java
+        }
+    }
+}
+
 tasks.named('test') {
     useJUnitPlatform()
 }
