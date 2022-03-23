@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Set;
 
 import org.apache.commons.text.StringSubstitutor;
 
@@ -194,8 +195,14 @@ public class MapConfig implements IConfig {
 	 * @return the backing map, which is deeply unmodifiable
 	 * (all maps and collections stored in the map are unmodifiable)
 	 */
-	public Map<String, Object> getBackingMap() {
+	@Override
+	public Map<String, Object> asMap() {
 		return this.map;
+	}
+	
+	@Override
+	public Set<String> keys() {
+		return this.map.keySet();
 	}
 	
 	@Override

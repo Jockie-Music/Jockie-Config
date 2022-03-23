@@ -3,6 +3,7 @@ package com.jockie.config;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.jockie.config.utility.DataTypeUtility;
 
@@ -26,6 +27,9 @@ public interface IConfig {
 	public default IConfig resolve() {
 		return this.resolve(this);
 	}
+	
+	public Map<String, Object> asMap();
+	public Set<String> keys();
 	
 	public boolean has(String key);
 	
