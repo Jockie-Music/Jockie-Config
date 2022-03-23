@@ -142,10 +142,32 @@ public abstract class AbstractFieldConfig {
 		
 		String name = AbstractFieldConfig.getName(field);
 		if(!this.config.has(name)) {
+			Class<?> type = field.getType();
+			if(DataTypeUtility.isNumber(type)) {
+				/* Ensure the defaultValue is the correct type, this is to ensure type safety between different number types */
+				return AbstractFieldConfig.cast(DataTypeUtility.convertNumber((Number) defaultValue, field.getType()));
+			}
+			
 			return defaultValue;
 		}
 		
 		return this.getValue(field, name);
+	}
+	
+	protected <T extends Number> T with(long defaultValue) {
+		return AbstractFieldConfig.cast(this.with((Object) defaultValue));
+	}
+	
+	protected <T extends Number> T with(int defaultValue) {
+		return AbstractFieldConfig.cast(this.with((Object) defaultValue));
+	}
+	
+	protected <T extends Number> T with(double defaultValue) {
+		return AbstractFieldConfig.cast(this.with((Object) defaultValue));
+	}
+	
+	protected <T extends Number> T with(float defaultValue) {
+		return AbstractFieldConfig.cast(this.with((Object) defaultValue));
 	}
 	
 	public AbstractFieldConfig() {

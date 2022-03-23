@@ -57,7 +57,8 @@ public class DataTypeUtility {
 	
 	public static boolean isNumber(Class<?> type) {
 		return isLong(type) || isInteger(type) || isShort(type)
-			|| isByte(type) || isFloat(type) || isDouble(type);
+			|| isByte(type) || isFloat(type) || isDouble(type)
+			|| isCharacter(type);
 	}
 	
 	@SuppressWarnings("unchecked")
@@ -88,6 +89,8 @@ public class DataTypeUtility {
 			return number.floatValue();
 		}else if(isDouble(type)) {
 			return number.doubleValue();
+		}else if(isCharacter(type)) {
+			return (char) number.shortValue();
 		}
 		
 		throw new IllegalArgumentException("Unable to convert value: " + number + " (of type: " + number.getClass() + "), to: " + type);
@@ -173,6 +176,7 @@ public class DataTypeUtility {
 	
 	public static Number parseNumber(String value) {
 		if(value.indexOf('.') == -1) {
+			/* TODO: Should we return an int if it's less than Integer.MAX_VALUE and greater than Integer.MIN_VALUE? */
 			return Long.valueOf(value);
 		}
 		
