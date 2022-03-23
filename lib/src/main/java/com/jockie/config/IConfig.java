@@ -73,7 +73,7 @@ public interface IConfig {
 	}
 	
 	public default IConfig getConfig(String key, IConfig defaultValue) {
-		return this.get(key, defaultValue);
+		return this.get(key, IConfig.class, defaultValue);
 	}
 	
 	public default <T extends Enum<T>> T getEnum(String key, Class<T> type) {
@@ -102,7 +102,7 @@ public interface IConfig {
 	}
 	
 	public default String getString(String key, String defaultValue) {
-		return this.get(key, defaultValue);
+		return this.get(key, String.class, defaultValue);
 	}
 	
 	public default long getLong(String key) {
@@ -110,7 +110,7 @@ public interface IConfig {
 	}
 	
 	public default long getLong(String key, long defaultValue) {
-		return this.get(key, defaultValue);
+		return this.get(key, long.class, defaultValue);
 	}
 	
 	public default int getInt(String key) {
@@ -118,7 +118,7 @@ public interface IConfig {
 	}
 	
 	public default int getInt(String key, int defaultValue) {
-		return this.get(key, defaultValue);
+		return this.get(key, int.class, defaultValue);
 	}
 	
 	public default boolean getBoolean(String key) {
@@ -126,6 +126,6 @@ public interface IConfig {
 	}
 	
 	public default boolean getBoolean(String key, boolean defaultValue) {
-		return this.get(key, defaultValue);
+		return this.get(key, boolean.class, defaultValue);
 	}
 }
