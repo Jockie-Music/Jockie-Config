@@ -25,8 +25,8 @@ public class ConfigFactory {
 		return new SystemPropertiesConfig();
 	}
 	
-	public static MapConfig systemProperties(String prefix) {
-		return new SystemPropertiesConfig().get(prefix, ConfigFactory.EMPTY);
+	public static IConfig systemProperties(String prefix) {
+		return new SystemPropertiesConfig().getConfig(prefix, ConfigFactory.empty());
 	}
 	
 	public static MapConfig fromProperties(Properties properties) {

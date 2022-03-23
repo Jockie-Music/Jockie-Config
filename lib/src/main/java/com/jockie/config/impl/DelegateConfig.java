@@ -14,6 +14,10 @@ public class DelegateConfig implements IConfig {
 		this.delegate = config;
 	}
 	
+	public IConfig getDelegate() {
+		return this.delegate;
+	}
+	
 	@Override
 	public IConfig merge(IConfig... configs) {
 		return this.delegate.merge(configs);
