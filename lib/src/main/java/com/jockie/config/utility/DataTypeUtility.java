@@ -35,6 +35,26 @@ public class DataTypeUtility {
 		return type == Boolean.class || type == boolean.class;
 	}
 	
+	public static boolean isCharacter(Class<?> type) {
+		return type == Character.class || type == char.class;
+	}
+	
+	public static Class<?> getBoxedClass(Class<?> type) {
+		if(!type.isPrimitive()) return type;
+		
+		if(type == long.class) return Long.class;
+		if(type == int.class) return Integer.class;
+		if(type == short.class) return Short.class;
+		if(type == byte.class) return Byte.class;
+		if(type == float.class) return Float.class;
+		if(type == double.class) return Double.class;
+		if(type == boolean.class) return Boolean.class;
+		if(type == char.class) return Character.class;
+		if(type == void.class) return Void.class;
+		
+		return type;
+	}
+	
 	public static boolean isNumber(Class<?> type) {
 		return isLong(type) || isInteger(type) || isShort(type)
 			|| isByte(type) || isFloat(type) || isDouble(type);
@@ -178,7 +198,13 @@ public class DataTypeUtility {
 			return value;
 		}
 		
-		if(type.isAssignableFrom(value.getClass())) {
+		Class<?> valueType = value.getClass();
+		if(type.isAssignableFrom(valueType)) {
+			return value;
+		}
+		
+		/* Auto-boxing can handle it for us */
+		if(valueType == DataTypeUtility.getBoxedClass(type)) {
 			return value;
 		}
 		
@@ -193,7 +219,7 @@ public class DataTypeUtility {
 			
 			/* TODO: Allow lists and maps to be converted to string? */
 			
-			throw new IllegalArgumentException("Unable to convert value: " + value + " (of type: " + value.getClass() + "), to: " + type);
+			throw new IllegalArgumentException("Unable to convert value: " + value + " (of type: " + valueType + "), to: " + type);
 		}
 		
 		if(value instanceof Number) {
@@ -222,6 +248,6 @@ public class DataTypeUtility {
 			/* TODO: Add support for maps? */
 		}
 		
-		throw new IllegalArgumentException("Unable to convert value: " + value + " (of type: " + value.getClass() + "), to: " + type);
+		throw new IllegalArgumentException("Unable to convert value: " + value + " (of type: " + valueType + "), to: " + type);
 	}
 }
