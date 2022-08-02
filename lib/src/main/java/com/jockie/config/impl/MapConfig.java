@@ -211,7 +211,9 @@ public class MapConfig implements IConfig {
 		 * TODO: Should we return the config in a JSON format?
 		 * 
 		 * Reasoning behind making it JSON is that it's easier to pretty-format
-		 * and more "well known"
+		 * and more "well known", it also includes more types, for a Map's string
+		 * you can't really make out what is what, is it a string or is a list,
+		 * with JSON you have more clear definitions of the types
 		 */
 		return this.map.toString();
 	}

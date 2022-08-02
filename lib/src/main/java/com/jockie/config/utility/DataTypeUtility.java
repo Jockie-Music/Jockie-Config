@@ -55,6 +55,16 @@ public class DataTypeUtility {
 		return type;
 	}
 	
+	public static boolean isPrimitiveNumber(Class<?> type) {
+		if(!type.isPrimitive()) {
+			return false;
+		}
+		
+		return type == long.class || type == int.class || type == short.class
+			|| type == byte.class || type == float.class || type == double.class
+			|| type == char.class;
+	}
+	
 	public static boolean isNumber(Class<?> type) {
 		return isLong(type) || isInteger(type) || isShort(type)
 			|| isByte(type) || isFloat(type) || isDouble(type)
@@ -77,21 +87,13 @@ public class DataTypeUtility {
 	}
 	
 	public static Object convertNumber(Number number, Class<?> type) {
-		if(isLong(type)) {
-			return number.longValue();
-		}else if(isInteger(type)) {
-			return number.intValue();
-		}else if(isShort(type)) {
-			return number.shortValue();
-		}else if(isByte(type)) {
-			return number.byteValue();
-		}else if(isFloat(type)) {
-			return number.floatValue();
-		}else if(isDouble(type)) {
-			return number.doubleValue();
-		}else if(isCharacter(type)) {
-			return (char) number.shortValue();
-		}
+		if(isLong(type)) return number.longValue();
+		if(isInteger(type)) return number.intValue();
+		if(isShort(type)) return number.shortValue();
+		if(isByte(type)) return number.byteValue();
+		if(isFloat(type)) return number.floatValue();
+		if(isDouble(type)) return number.doubleValue();
+		if(isCharacter(type)) return (char) number.shortValue();
 		
 		throw new IllegalArgumentException("Unable to convert value: " + number + " (of type: " + number.getClass() + "), to: " + type);
 	}

@@ -1,6 +1,7 @@
 package com.jockie.config;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -37,6 +38,15 @@ public interface IConfig {
 	
 	public <T> List<T> getList(String key, Class<T> elementType, List<T> defaultValue);
 	
+	public default <T> Set<T> getSet(String key, Class<T> elementType, Set<T> defaultValue) {
+		List<T> list = this.getList(key, elementType, null);
+		if(list == null) {
+			return defaultValue;
+		}
+		
+		return new HashSet<>(list);
+	}
+	
 	public <K, V> Map<K, V> getMap(String key, Class<K> keyType, Class<V> valueType, Map<K, V> defaultValue);
 	
 	public default <T> T get(String key, Class<T> type) {
@@ -66,6 +76,10 @@ public interface IConfig {
 	
 	public default <T> List<T> getList(String key, Class<T> elementType) {
 		return this.getList(key, elementType, Collections.emptyList());
+	}
+	
+	public default <T> Set<T> getSet(String key, Class<T> elementType) {
+		return this.getSet(key, elementType, Collections.emptySet());
 	}
 	
 	public default IConfig getConfig(String key) {

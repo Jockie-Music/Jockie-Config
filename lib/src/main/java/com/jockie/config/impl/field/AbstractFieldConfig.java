@@ -40,26 +40,31 @@ import com.jockie.config.utility.DataTypeUtility;
  */
 /**
  * NOTE: All List, Set and Map fields will be immutable
+ * <br>
+ * NOTE: Fields are technically not guaranteed to be in the order they are defined and may differ for different JVMs which would break this implementation
  */
 public abstract class AbstractFieldConfig {
 	
 	private static final ThreadLocal<IConfig> CURRENT_CONFIG = new ThreadLocal<>();
 	
+	private final boolean requireFinal;
+	private final Naming naming;
+	
 	private final IConfig config;
 	private BlockingQueue<Field> queue = new LinkedBlockingQueue<>();
 	
 	@SuppressWarnings("unchecked")
-	private static <T> T cast(Object value) {
+	private <T> T cast(Object value) {
 		return (T) value;
 	}
 	
-	private static String getName(Field field) {
+	private String getName(Field field) {
 		Name nameAnnotation = field.getAnnotation(Name.class);
 		if(nameAnnotation != null) {
 			return nameAnnotation.value();
 		}
 		
-		return field.getName();
+		return this.naming.convert(field.getName());
 	}
 	
 	private Field nextField() {
@@ -73,40 +78,57 @@ public abstract class AbstractFieldConfig {
 	
 	private <T> T defaultValue(Class<?> type) {
 		if(AbstractFieldConfig.class.isAssignableFrom(type)) {
-			return AbstractFieldConfig.cast(AbstractFieldConfig.createInternal(this, ConfigFactory.empty(), type));
+			return this.cast(AbstractFieldConfig.createInternal(this, ConfigFactory.empty(), type));
 		}
 		
 		if(List.class.isAssignableFrom(type)) {
-			return AbstractFieldConfig.cast(Collections.emptyList());
-		}else if(Set.class.isAssignableFrom(type)) {
-			return AbstractFieldConfig.cast(Collections.emptySet());
-		}else if(Map.class.isAssignableFrom(type)) {
-			return AbstractFieldConfig.cast(Collections.emptyMap());
+			return this.cast(Collections.emptyList());
 		}
 		
-		if(DataTypeUtility.isNumber(type)) {
-			return AbstractFieldConfig.cast(DataTypeUtility.convertNumber(0, type));
+		if(Set.class.isAssignableFrom(type)) {
+			return this.cast(Collections.emptySet());
 		}
 		
-		if(type == char.class) {
-			return AbstractFieldConfig.cast((char) 0);
+		if(Map.class.isAssignableFrom(type)) {
+			return this.cast(Collections.emptyMap());
+		}
+		
+		if(DataTypeUtility.isPrimitiveNumber(type)) {
+			return this.cast(DataTypeUtility.convertNumber(0, type));
 		}
 		
 		if(type == boolean.class) {
-			return AbstractFieldConfig.cast(false);
+			return this.cast(false);
 		}
 		
 		return null;
 	}
 	
 	private <T> T getValue(Field field, String name) {
-		return AbstractFieldConfig.cast(AbstractFieldConfig.getValue(this, field.getGenericType(), field.getType(), this.config, name));
+		return this.cast(AbstractFieldConfig.getValue(this, field.getGenericType(), field.getType(), this.config, name));
 	}
 	
-	protected <T> T require() {
+	private <T> T getSpecialValue(Field field) {
+		if(field.getAnnotation(Identity.class) != null) {
+			if(!field.getType().isAssignableFrom(this.config.getClass())) {
+				throw new IllegalStateException("Field: " + field.getName() + ", is defined with @Identity but is not assignable from the config of type: " + this.config.getClass());
+			}
+			
+			return this.cast(this.config);
+		}
+		
+		return null;
+	}
+	
+	protected final <T> T require() {
 		Field field = this.nextField();
 		
-		String name = AbstractFieldConfig.getName(field);
+		T specialValue = this.getSpecialValue(field);
+		if(specialValue != null) {
+			return specialValue;
+		}
+		
+		String name = this.getName(field);
 		if(!this.config.has(name)) {
 			throw new IllegalStateException("Missing required field: " + name);
 		}
@@ -114,10 +136,15 @@ public abstract class AbstractFieldConfig {
 		return this.getValue(field, name);
 	}
 	
-	protected <T> T with() {
+	protected final <T> T with() {
 		Field field = this.nextField();
 		
-		String name = AbstractFieldConfig.getName(field);
+		T specialValue = this.getSpecialValue(field);
+		if(specialValue != null) {
+			return specialValue;
+		}
+		
+		String name = this.getName(field);
 		if(!this.config.has(name)) {
 			return this.defaultValue(field.getType());
 		}
@@ -126,26 +153,36 @@ public abstract class AbstractFieldConfig {
 	}
 	
 	/* TODO: Add suport for maps etc */
-	protected <T> T with(IConfig config) {
+	protected final <T> T with(IConfig config) {
 		Field field = this.nextField();
 		
-		String name = AbstractFieldConfig.getName(field);
+		T specialValue = this.getSpecialValue(field);
+		if(specialValue != null) {
+			return specialValue;
+		}
+		
+		String name = this.getName(field);
 		if(!this.config.has(name)) {
-			return AbstractFieldConfig.cast(AbstractFieldConfig.createInternal(this, config, field.getType()));
+			return this.cast(AbstractFieldConfig.createInternal(this, config, field.getType()));
 		}
 		
 		return this.getValue(field, name);
 	}
 	
-	protected <T> T with(T defaultValue) {
+	protected final <T> T with(T defaultValue) {
 		Field field = this.nextField();
 		
-		String name = AbstractFieldConfig.getName(field);
+		T specialValue = this.getSpecialValue(field);
+		if(specialValue != null) {
+			return specialValue;
+		}
+		
+		String name = this.getName(field);
 		if(!this.config.has(name)) {
 			Class<?> type = field.getType();
 			if(DataTypeUtility.isNumber(type)) {
 				/* Ensure the defaultValue is the correct type, this is to ensure type safety between different number types */
-				return AbstractFieldConfig.cast(DataTypeUtility.convertNumber((Number) defaultValue, field.getType()));
+				return this.cast(DataTypeUtility.convertNumber((Number) defaultValue, field.getType()));
 			}
 			
 			return defaultValue;
@@ -154,35 +191,49 @@ public abstract class AbstractFieldConfig {
 		return this.getValue(field, name);
 	}
 	
-	protected <T extends Number> T with(long defaultValue) {
-		return AbstractFieldConfig.cast(this.with((Object) defaultValue));
+	protected final <T extends Number> T with(long defaultValue) {
+		return this.cast(this.with((Object) defaultValue));
 	}
 	
-	protected <T extends Number> T with(int defaultValue) {
-		return AbstractFieldConfig.cast(this.with((Object) defaultValue));
+	protected final <T extends Number> T with(int defaultValue) {
+		return this.cast(this.with((Object) defaultValue));
 	}
 	
-	protected <T extends Number> T with(double defaultValue) {
-		return AbstractFieldConfig.cast(this.with((Object) defaultValue));
+	protected final <T extends Number> T with(double defaultValue) {
+		return this.cast(this.with((Object) defaultValue));
 	}
 	
-	protected <T extends Number> T with(float defaultValue) {
-		return AbstractFieldConfig.cast(this.with((Object) defaultValue));
+	protected final <T extends Number> T with(float defaultValue) {
+		return this.cast(this.with((Object) defaultValue));
+	}
+	
+	private Config getConfigAnnotation() {
+		Class<?> parent = this.getClass();
+		do {
+			Config config = parent.getAnnotation(Config.class);
+			if(config != null) {
+				return config;
+			}
+		}while((parent = parent.getEnclosingClass()) != null);
+		
+		return null;
 	}
 	
 	public AbstractFieldConfig() {
 		this.config = CURRENT_CONFIG.get();
 		if(this.config == null) {
-			throw new IllegalStateException("Missing config, this must be created through the ConfigFieldFactory");
+			throw new IllegalStateException("Missing config, this must be created through the ConfigFactory#create");
 		}
+		
+		Config annotation = this.getConfigAnnotation();
+		this.naming = annotation != null ? annotation.naming() : Naming.CAMEL_CASE;
+		this.requireFinal = annotation != null ? annotation.requireFinal() : true;
 		
 		this.addFieldsToQueue();
 	}
 	
 	private void addFieldsToQueue() {
 		Class<?> type = this.getClass();
-		Config config = type.getAnnotation(Config.class);
-		
 		for(Field field : type.getDeclaredFields()) {
 			if(Modifier.isStatic(field.getModifiers())) {
 				continue;
@@ -197,8 +248,7 @@ public abstract class AbstractFieldConfig {
 				continue;
 			}
 			
-			boolean requireFinal = config == null || config.requireFinal();
-			if(requireFinal && !Modifier.isFinal(field.getModifiers())) {
+			if(this.requireFinal && !Modifier.isFinal(field.getModifiers())) {
 				throw new IllegalStateException("Field: " + field.getName() + ", is not final, all fields must be final to ensure the config is immutable, set @Config#requireFinal to false if this is not desired");
 			}
 			
@@ -209,8 +259,9 @@ public abstract class AbstractFieldConfig {
 	private static List<?> getList(Object instance, Type elementType, IConfig config, String name) {
 		if(AbstractFieldConfig.isFieldConfig(instance, (Class<?>) elementType)) {
 			List<Object> result = new ArrayList<>();
-			List<IConfig> fieldConfigs = config.getList(name, IConfig.class);
-			for(IConfig fieldConfig : fieldConfigs) {
+			
+			List<IConfig> configs = config.getList(name, IConfig.class);
+			for(IConfig fieldConfig : configs) {
 				result.add(AbstractFieldConfig.createInternal(instance, fieldConfig, (Class<?>) elementType));
 			}
 			
@@ -227,6 +278,7 @@ public abstract class AbstractFieldConfig {
 	private static Map<?, ?> getMap(Object instance, Type keyType, Type valueType, IConfig config, String name) {
 		if(AbstractFieldConfig.isFieldConfig(instance, (Class<?>) valueType)) {
 			Map<Object, Object> result = new HashMap<>();
+			
 			Map<?, IConfig> map = config.getMap(name, (Class<?>) keyType, IConfig.class);
 			for(Entry<?, IConfig> entry : map.entrySet()) {
 				result.put(entry.getKey(), AbstractFieldConfig.createInternal(instance, entry.getValue(), (Class<?>) valueType));
@@ -239,19 +291,26 @@ public abstract class AbstractFieldConfig {
 	}
 	
 	private static Object getValue(Object instance, Type parameterType, Class<?> parameterClass, IConfig config, String name) {
+		Type[] types;
+		if(parameterType instanceof ParameterizedType) {
+			types = ((ParameterizedType) parameterType).getActualTypeArguments();
+		}else{
+			types = new Type[parameterClass.getTypeParameters().length];
+			for(int i = 0; i < types.length; i++) {
+				types[i] = Object.class;
+			}
+		}
+		
 		if(parameterClass == List.class) {
-			Type elementType = ((ParameterizedType) parameterType).getActualTypeArguments()[0];
-			return Collections.unmodifiableList(AbstractFieldConfig.getList(instance, elementType, config, name));
+			return Collections.unmodifiableList(AbstractFieldConfig.getList(instance, types[0], config, name));
 		}
 		
 		if(parameterClass == Set.class) {
-			Type elementType = ((ParameterizedType) parameterType).getActualTypeArguments()[0];
-			return Collections.unmodifiableSet(AbstractFieldConfig.getSet(instance, elementType, config, name));
+			return Collections.unmodifiableSet(AbstractFieldConfig.getSet(instance, types[0], config, name));
 		}
 		
 		if(parameterClass == Map.class) {
-			Type[] typeArguments = ((ParameterizedType) parameterType).getActualTypeArguments();
-			return Collections.unmodifiableMap(AbstractFieldConfig.getMap(instance, typeArguments[0], typeArguments[1], config, name));
+			return Collections.unmodifiableMap(AbstractFieldConfig.getMap(instance, types[0], types[1], config, name));
 		}
 		
 		if(AbstractFieldConfig.isFieldConfig(instance, parameterClass)) {
@@ -319,10 +378,10 @@ public abstract class AbstractFieldConfig {
 			Parameter[] parameters = constructor.getParameters();
 			if(parameters.length == 0) {
 				return constructor;
-			}else if(parameters.length == 1) {
-				if(instance.getClass() == parameters[0].getType()) {
-					return constructor;
-				}
+			}
+			
+			if(parameters.length == 1 && instance.getClass() == parameters[0].getType()) {
+				return constructor;
 			}
 		}
 		

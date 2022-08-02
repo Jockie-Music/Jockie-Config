@@ -18,4 +18,11 @@ public @interface Config {
 	 */
 	public boolean requireFinal() default true;
 	
+	/**
+	 * @return the naming type of the properties, this is used to properly convert
+	 * a getter method or field name to the property name, for instance, using
+	 * {@link Naming#SNAKE_CASE} would convert "getApiKey" and "apiKey" to "api_key"
+	 */
+	public Naming naming() default Naming.CAMEL_CASE;
+	
 }
