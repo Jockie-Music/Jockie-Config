@@ -1,4 +1,4 @@
-package com.jockie.config.impl.field;
+package com.jockie.config.impl.wrapper;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -55,7 +55,7 @@ public abstract class AbstractFieldConfig {
 	
 	@SuppressWarnings("unchecked")
 	private <T> T cast(Object value) {
-		return (T) value;
+		return DataTypeUtility.cast(value);
 	}
 	
 	private String getName(Field field) {

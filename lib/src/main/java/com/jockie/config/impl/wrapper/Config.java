@@ -1,4 +1,4 @@
-package com.jockie.config.impl.field;
+package com.jockie.config.impl.wrapper;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

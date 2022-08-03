@@ -1,4 +1,4 @@
-package com.jockie.config.impl.field;
+package com.jockie.config.impl.wrapper;
 
 public enum Naming {
 	/** camelCase */
