@@ -60,47 +60,6 @@ public class InterfaceConfigImpl extends DefaultValueProxy {
 		return Proxy.newProxyInstance(Thread.currentThread().getContextClassLoader(), new Class[] { this.interfaze }, handler);
 	}
 	
-	private Object defaultValueProxy() {
-		return this.proxy(new DefaultValueProxy(this.interfaze));
-	}
-	
-	/*
-	 * This is necessary to ensure that only a single value is created from a method,
-	 * due to the fact that you can call other methods from the post load methods and
-	 * because the JVM does not give us the Methods in an order where we know one will
-	 * be called before the other we have to use this implementation to only create one
-	 * value.
-	 * 
-	 * This can be tested by having a method return a random value then having one or more
-	 * other methods calling it, after loading the config you will see that some of the values
-	 * are different without this.
-	 */
-	private void postLoad(Map<String, Object> values, List<Method> methods) {
-		Set<Method> methodSet = new HashSet<>(methods);
-		
-		Object instance = this.proxy((proxy, method, arguments) -> {
-			if(!methodSet.remove(method)) {
-				return this.invoke(values, proxy, method, arguments);
-			}
-			
-			Object value = method.invoke(proxy);
-			values.put(method.getName(), value);
-			return value;
-		});
-		
-		for(Method method : methods) {
-			if(!methodSet.remove(method)) {
-				continue;
-			}
-			
-			try {
-				values.put(method.getName(), method.invoke(instance));
-			}catch(IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-				throw new RuntimeException("Failed to compute the value", e);
-			}
-		}
-	}
-	
 	private List<?> getList(Type elementType, IConfig config, String name) {
 		if(this.isConfig((Class<?>) elementType)) {
 			List<Object> result = new ArrayList<>();
@@ -222,90 +181,170 @@ public class InterfaceConfigImpl extends DefaultValueProxy {
 		return name;
 	}
 	
-	private final Map<String, Object> build() {
-		Object instance = this.defaultValueProxy();
-		
-		Config annotation = this.getConfigAnnotation();
-		
-		Naming naming = Naming.CAMEL_CASE;
-		if(annotation != null) {
-			naming = annotation.naming();
+	private Object computeValue(Naming naming, Object instance, Method method) {
+		if(method.getAnnotation(Identity.class) != null) {
+			return this.config;
 		}
 		
-		List<Method> postLoadMethods = new ArrayList<>();
+		Class<?> returnType = method.getReturnType();
 		
-		Map<String, Object> values = new HashMap<>();
+		String name = naming.convert(this.getBeanName(method.getName()));
+		if(this.config.has(name)) {
+			return this.getValue(method.getGenericReturnType(), returnType, this.config, name);
+		}
+		
+		if(!method.isDefault()) {
+			return this.defaultValue(returnType);
+		}
+		
+		try {
+			return method.invoke(instance);
+		}catch(IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
+			throw new RuntimeException("Failed to get default value", e);
+		}
+	}
+	
+	private boolean isGetter(Method method) {
+		/* Would anyone ever have this? and why? is there anything we need to support? */
+		if(method.getReturnType() == void.class || method.getReturnType() == Void.class) {
+			return false;
+		}
+		
+		if(method.getParameterCount() > 0) {
+			return false;
+		}
+		
+		return true;
+	}
+	
+	private boolean isComputeMethod(Method method) {
+		if(method.getAnnotation(Computed.class) != null) {
+			if(!this.isGetter(method)) {
+				throw new IllegalStateException("Method: " + method + ", is defined with @Computed but is not a getter");
+			}
+			
+			if(!method.isDefault()) {
+				throw new IllegalStateException("Method: " + method + ", is defined with @Computed but does not have a default implementation");
+			}
+			
+			return true;
+		}
+		
+		return false;
+	}
+	
+	private boolean isConfigMethod(Method method) {
+		Class<?> returnType = method.getReturnType();
+		if(method.getAnnotation(Identity.class) != null) {
+			if(method.getParameterCount() > 0) {
+				throw new IllegalStateException("Method: " + method + ", is defined with @Identity but is not a getter");
+			}
+			
+			if(!returnType.isAssignableFrom(this.config.getClass())) {
+				throw new IllegalStateException("Method: " + method + ", is defined with @Identity but is not assignable from the config of type: " + this.config.getClass());
+			}
+			
+			return true;
+		}
+		
+		if(!this.isGetter(method)) {
+			if(!method.isDefault()) {
+				throw new IllegalStateException("Method: " + method + ", is not a getter and there is no default implementation");
+			}
+			
+			return false;
+		}
+		
+		if(method.getAnnotation(Ignore.class) != null) {
+			if(!method.isDefault()) {
+				throw new IllegalStateException("Method: " + method + ", is defined with @Ignore but does not have a default implementation");
+			}
+			
+			return false;
+		}
+		
+		return true;
+	}
+	
+	private final Map<String, Object> build() {
+		Config annotation = this.getConfigAnnotation();
+		
+		Naming naming;
+		if(annotation != null) {
+			naming = annotation.naming();
+		}else{
+			naming = Naming.CAMEL_CASE;
+		}
+		
+		Set<Method> methods = new HashSet<>();
+		Set<Method> computeMethods = new HashSet<>();
+		
 		for(Method method : this.interfaze.getMethods()) {
 			if(Modifier.isStatic(method.getModifiers())) {
 				continue;
 			}
 			
-			Class<?> returnType = method.getReturnType();
-			
-			if(method.getAnnotation(Identity.class) != null) {
-				if(method.getParameterCount() > 0) {
-					throw new IllegalStateException("Method: " + method + ", is defined with @Identity but is not a getter");
-				}
-				
-				if(!returnType.isAssignableFrom(this.config.getClass())) {
-					throw new IllegalStateException("Method: " + method + ", is defined with @Identity but is not assignable from the config of type: " + this.config.getClass());
-				}
-				
-				values.put(method.getName(), this.config);
+			/* 
+			 * These should run as late as possible, note that they may not be called last,
+			 * that would normally happen if one of the config property methods call a computed method
+			 */
+			if(this.isComputeMethod(method)) {
+				computeMethods.add(method);
 				continue;
 			}
 			
-			/* Would anyone ever have this? and why? is there anything we need to support? */
-			boolean isVoid = returnType == void.class || returnType == Void.class;
-			boolean isGetter = method.getParameterCount() == 0;
+			if(this.isConfigMethod(method)) {
+				methods.add(method);
+				continue;
+			}
+		}
+		
+		Map<String, Object> values = new HashMap<>();
+		
+		/*
+		 * This is necessary to ensure that only a single value is created from a method,
+		 * due to the fact that you can call other methods from the default implementation
+		 * and because the JVM does not give us the Methods in an order where we know one
+		 * will be called before the other we have to use this implementation to only create
+		 * one value.
+		 * 
+		 * This can be tested by having a method return a random value then having one or more
+		 * other methods calling it, after loading the config you will see that some of the values
+		 * are different without this.
+		 */
+		Object instance = this.proxy((proxy, method, arguments) -> {
+			Object value;
+			if(methods.remove(method)) {
+				value = this.computeValue(naming, proxy, method);
+			}else if(computeMethods.remove(method)) {
+				value = method.invoke(proxy);
+			}else{
+				return this.invoke(values, proxy, method, arguments);
+			}
 			
-			if(isVoid || !isGetter) {
-				if(!method.isDefault()) {
-					throw new IllegalStateException("Method: " + method + ", is not a getter and there is no default implementation");
-				}
-				
+			values.put(method.getName(), value);
+			return value;
+		});
+		
+		for(Method method : new ArrayList<>(methods)) {
+			if(!methods.remove(method)) {
 				continue;
 			}
 			
-			/* These must be run at the very end after all properties have been created */
-			if(method.getAnnotation(Computed.class) != null) {
-				if(!method.isDefault()) {
-					throw new IllegalStateException("Method: " + method + ", is defined with @Computed but does not have a default implementation");
-				}
-				
-				postLoadMethods.add(method);
-				continue;
-			}
-			
-			if(method.getAnnotation(Ignore.class) != null) {
-				if(!method.isDefault()) {
-					throw new IllegalStateException("Method: " + method + ", is defined with @Ignore but does not have a default implementation");
-				}
-				
-				continue;
-			}
-			
-			String name = naming.convert(this.getBeanName(method.getName()));
-			if(this.config.has(name)) {
-				Object value = this.getValue(method.getGenericReturnType(), method.getReturnType(), this.config, name);
-				values.put(method.getName(), value);
-				continue;
-			}
-			
-			if(!method.isDefault()) {
-				values.put(method.getName(), this.defaultValue(returnType));
+			values.put(method.getName(), this.computeValue(naming, instance, method));
+		}
+		
+		for(Method method : new ArrayList<>(computeMethods)) {
+			if(!computeMethods.remove(method)) {
 				continue;
 			}
 			
 			try {
 				values.put(method.getName(), method.invoke(instance));
 			}catch(IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-				throw new RuntimeException("Failed to get default value", e);
+				throw new RuntimeException("Failed to compute the value", e);
 			}
 		}
-		
-		/* TODO: Is there any better way to implement this? */
-		this.postLoad(values, postLoadMethods);
 		
 		return values;
 	}
