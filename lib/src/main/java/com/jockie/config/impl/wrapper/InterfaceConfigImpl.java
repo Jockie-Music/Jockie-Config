@@ -181,6 +181,15 @@ public class InterfaceConfigImpl extends DefaultValueProxy {
 		return name;
 	}
 	
+	private String getName(Naming naming, Method method) {
+		Name name = method.getAnnotation(Name.class);
+		if(name != null) {
+			return name.value();
+		}
+		
+		return naming.convert(this.getBeanName(method.getName()));
+	}
+	
 	private Object computeValue(Naming naming, Object instance, Method method) {
 		if(method.getAnnotation(Identity.class) != null) {
 			return this.config;
@@ -188,7 +197,7 @@ public class InterfaceConfigImpl extends DefaultValueProxy {
 		
 		Class<?> returnType = method.getReturnType();
 		
-		String name = naming.convert(this.getBeanName(method.getName()));
+		String name = this.getName(naming, method);
 		if(this.config.has(name)) {
 			return this.getValue(method.getGenericReturnType(), returnType, this.config, name);
 		}
