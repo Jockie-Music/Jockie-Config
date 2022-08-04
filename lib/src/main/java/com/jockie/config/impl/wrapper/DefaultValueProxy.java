@@ -26,12 +26,12 @@ public class DefaultValueProxy implements InvocationHandler {
 	
 	private static final int JAVA_MAJOR_VERSION = DefaultValueProxy.getMajorVersion();
 	
-	protected final Class<?> interfaze;
+	protected final Class<?> proxiedInterface;
 	
 	public DefaultValueProxy(Class<?> interfaze) {
-		this.interfaze = Objects.requireNonNull(interfaze);
+		this.proxiedInterface = Objects.requireNonNull(interfaze);
 		
-		if(!this.interfaze.isInterface()) {
+		if(!this.proxiedInterface.isInterface()) {
 			throw new IllegalArgumentException(interfaze + " is not an interface");
 		}
 	}
@@ -39,7 +39,7 @@ public class DefaultValueProxy implements InvocationHandler {
 	@Override
 	public Object invoke(Object proxy, Method method, Object[] arguments) throws Throwable {
 		if(!method.isDefault()) {
-			throw new UnsupportedOperationException("Method: " + method + ", for interface: " + this.interfaze + ", does not have a default implementation");
+			throw new UnsupportedOperationException("Method: " + method + ", for interface: " + this.proxiedInterface + ", does not have a default implementation");
 		}
 		
 		return this.callDefault(proxy, method, arguments);
@@ -49,7 +49,7 @@ public class DefaultValueProxy implements InvocationHandler {
 		if(JAVA_MAJOR_VERSION > 8) {
 			/* Java 9+ */
 			return MethodHandles.lookup()
-				.findSpecial(this.interfaze, method.getName(), MethodType.methodType(method.getReturnType(), method.getParameterTypes()), this.interfaze)
+				.findSpecial(this.proxiedInterface, method.getName(), MethodType.methodType(method.getReturnType(), method.getParameterTypes()), this.proxiedInterface)
 				.bindTo(proxy)
 				.invokeWithArguments(arguments);
 		}
@@ -58,9 +58,9 @@ public class DefaultValueProxy implements InvocationHandler {
 		Constructor<Lookup> constructor = Lookup.class.getDeclaredConstructor(Class.class);
 		constructor.setAccessible(true);
 		
-		return constructor.newInstance(this.interfaze)
-			.in(this.interfaze)
-			.unreflectSpecial(method, this.interfaze)
+		return constructor.newInstance(this.proxiedInterface)
+			.in(this.proxiedInterface)
+			.unreflectSpecial(method, this.proxiedInterface)
 			.bindTo(proxy)
 			.invokeWithArguments(arguments);
 	}
