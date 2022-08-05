@@ -56,6 +56,20 @@ public class InterfaceConfigImpl {
 		return null;
 	}
 	
+	private static class DelegateInvocationHandler implements InvocationHandler {
+		
+		private InvocationHandler handler;
+		
+		public DelegateInvocationHandler(InvocationHandler handler) {
+			this.handler = handler;
+		}
+
+		@Override
+		public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+			return this.handler.invoke(proxy, method, args);
+		}
+	}
+	
 	private static class Handler extends DefaultValueProxy {
 		
 		private final InterfaceConfigImpl impl;
@@ -129,6 +143,7 @@ public class InterfaceConfigImpl {
 	private final Map<String, Object> valueByName;
 	
 	private final Handler handler;
+	private final DelegateInvocationHandler invocationHandler;
 	private final Object proxy;
 	
 	/* Inherit the annotation from the enclosing class */
@@ -146,7 +161,8 @@ public class InterfaceConfigImpl {
 		this.proxiedInterface = proxiedInterface;
 		
 		this.handler = new Handler(this);
-		this.proxy = this.proxy(this.handler);
+		this.invocationHandler = new DelegateInvocationHandler(this.handler);
+		this.proxy = this.proxy(this.invocationHandler);
 		
 		this.config = Objects.requireNonNull(config);
 		
@@ -573,7 +589,7 @@ public class InterfaceConfigImpl {
 		 * other methods calling it, after loading the config you will see that some of the values
 		 * are different without this.
 		 */
-		Object instance = this.proxy((proxy, method, arguments) -> {
+		this.invocationHandler.handler = (proxy, method, arguments) -> {
 			if(propertyMethods.remove(method)) {
 				String name = this.getName(naming, method);
 				Object value = this.convertDefaultValue(naming, method.getReturnType(), this.computeValue(proxy, method, name));
@@ -591,7 +607,7 @@ public class InterfaceConfigImpl {
 			}
 			
 			return this.handler.invoke(proxy, method, arguments);
-		});
+		};
 		
 		for(Method method : new ArrayList<>(propertyMethods)) {
 			if(!propertyMethods.remove(method)) {
@@ -599,7 +615,7 @@ public class InterfaceConfigImpl {
 			}
 			
 			String name = this.getName(naming, method);
-			Object value = this.convertDefaultValue(naming, method.getReturnType(), this.computeValue(instance, method, name));
+			Object value = this.convertDefaultValue(naming, method.getReturnType(), this.computeValue(this.proxy, method, name));
 			
 			this.valueByMethod.put(method.getName(), value);
 			this.valueByName.put(name, value);
@@ -612,12 +628,14 @@ public class InterfaceConfigImpl {
 			
 			Object value;
 			try {
-				value = this.convertDefaultValue(naming, method.getReturnType(), method.invoke(instance));
+				value = this.convertDefaultValue(naming, method.getReturnType(), method.invoke(this.proxy));
 			}catch(IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
 				throw new RuntimeException("Failed to compute the value", e);
 			}
 			
 			this.valueByMethod.put(method.getName(), value);
 		}
+		
+		this.invocationHandler.handler = this.handler;
 	}
 }
