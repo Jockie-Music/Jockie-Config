@@ -13,7 +13,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -43,6 +42,14 @@ public class InterfaceConfigImpl {
 	/**
 	 * Appended to the proxy interfaces, only used to easily
 	 * determine if a proxy was created by us.
+	 */
+	/* 
+	 * TODO: This causes issues with other package protected configs,
+	 * either we make this public or we figure out an alternative solution.
+	 * 
+	 * The configs can never be package private because we need to call the default method
+	 * and we will always get the "IllegalAccessError: tried to access class ... from class ...Proxy"
+	 * exception if we try to, I am not sure if there's any way for us to solve that.
 	 */
 	private static interface InternalConfigImpl {
 		
@@ -473,17 +480,16 @@ public class InterfaceConfigImpl {
 	
 	private Object computeValue(Object instance, Method method, String name) {		
 		Class<?> returnType = method.getReturnType();
-		
-		if(method.getAnnotation(Parent.class) != null) {
-			/* TODO: Should this fail if it can not find one or should it just return null? */
-			return this.getParentOfType(returnType);
-		}
-		
 		if(this.config.has(name)) {
 			return this.getValue(method.getGenericReturnType(), returnType, this.config, name);
 		}
 		
-		if(!method.isDefault()) {
+		/*
+		 * We only want to compute the default value if it's a proxy instance
+		 * because we also pass the wrappedObject instance here, which would cause
+		 * it to not call the method
+		 */
+		if(!method.isDefault() && Proxy.class.isAssignableFrom(instance.getClass())) {
 			return this.defaultValue(returnType);
 		}
 		
@@ -502,15 +508,15 @@ public class InterfaceConfigImpl {
 			 * see example below.
 			 */
 			/*
-			public interface Parent {
+			public interface ParentConfig {
 				
-				public interface Child {
+				public interface ChildConfig {
 					
 					@Parent
-					public Parent getParent();
+					public ParentConfig getParent();
 					
 					public default int getValue() {
-						Child defaultChild = this.getParent().getDefaultChild();
+						ChildConfig defaultChild = this.getParent().getDefaultChild();
 						if(defaultChild == this) {
 							return 5;
 						}
@@ -519,8 +525,8 @@ public class InterfaceConfigImpl {
 					}
 				}
 				
-				public Child getDefaultChild();
-				public Child getChild();
+				public ChildConfig getDefaultChild();
+				public ChildConfig getChild();
 			}
 			*/
 			
@@ -658,6 +664,7 @@ public class InterfaceConfigImpl {
 			}
 			
 			if(this.isParentMethod(method)) {
+				/* TODO: Should this fail if it can not find one or should it just return null? */
 				this.valueByMethod.put(method.getName(), this.getParentOfType(method.getReturnType()));
 				continue;
 			}
