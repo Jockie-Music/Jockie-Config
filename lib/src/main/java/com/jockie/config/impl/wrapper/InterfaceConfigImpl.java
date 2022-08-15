@@ -9,38 +9,78 @@ import java.lang.reflect.Proxy;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import com.jockie.config.ConfigFactory;
 import com.jockie.config.IConfig;
 import com.jockie.config.utility.DataTypeUtility;
 
+/* TODO: Better error messages, for instance, include which property had issues */
+/* 
+ * TODO: Should we automatically convert all default List/Set/Map values to unmodifiable?
+ * 
+ * It would probably be a good idea to do so to keep to our goal of immutability,
+ * we might also want to create new instances of all the default values as we can't
+ * really know where they came from.
+ * 
+ * If we decide to do this we should keep track of the references via something like
+ * IdentityHashMap to ensure that the same values are still the same, we don't want to
+ * prevent people from comparing references.
+ */
 public class InterfaceConfigImpl {
 	
 	/**
 	 * Appended to the proxy interfaces, only used to easily
 	 * determine if a proxy was created by us.
 	 */
-	private static interface InternalConfigImpl {}
+	private static interface InternalConfigImpl {
+		
+		/*
+		 * The name of this is purposefully unconventional to avoid
+		 * potential overlaps with the configs, if anyone calls one
+		 * of their config values this that's on them :)
+		 */
+		public InterfaceConfigImpl __INTERNAL_IMPL__();
+		
+	}
+	
+	/**
+	 * Used when getting a value from a Map with {@link Map#getOrDefault} to avoid
+	 * redundant lookups by using {@link Map#containsKey} and {@link Map#get}.
+	 */
+	private static final Object EMPTY = new Object();
 	
 	public static <T> T createInternal(IConfig config, Class<T> interfaze) {
-		return InterfaceConfigImpl.createInternal(config, null, interfaze);
+		return InterfaceConfigImpl.createInternal(config, null, null, interfaze, true);
+	}
+	
+	private static <T> T createInternal(IConfig config, InterfaceConfigImpl parent, Class<T> interfaze) {
+		return InterfaceConfigImpl.createInternal(config, null, parent, interfaze);
+	}
+	
+	private static <T> T createInternal(IConfig config, Object wrappedObject, InterfaceConfigImpl parent, Class<T> interfaze) {
+		/* computeValues will be called in postLoadValue */
+		return InterfaceConfigImpl.createInternal(config, wrappedObject, parent, interfaze, false);
 	}
 	
 	@SuppressWarnings("unchecked")
-	public static <T> T createInternal(IConfig config, InterfaceConfigImpl parent, Class<T> interfaze) {
-		if(!interfaze.isInterface()) {
-			throw new IllegalArgumentException(interfaze + " is not an interface");
+	private static <T> T createInternal(IConfig config, Object wrappedObject, InterfaceConfigImpl parent, Class<T> interfaze, boolean computeValues) {
+		InterfaceConfigImpl impl = new InterfaceConfigImpl(parent, interfaze, config, wrappedObject);
+		if(computeValues) {
+			impl.computeValues();
 		}
 		
-		InterfaceConfigImpl impl = new InterfaceConfigImpl(parent, interfaze, config);
 		return (T) impl.proxy;
 	}
 	
@@ -82,23 +122,29 @@ public class InterfaceConfigImpl {
 		
 		@Override
 		public Object invoke(Object proxy, Method method, Object[] arguments) throws Throwable {
+			Class<?> declaringClass = method.getDeclaringClass();
+			
 			/* 
 			 * Allows the interface to extend IConfig which can be useful,
 			 * if they for some reason want to use IConfig#get or similar.
 			 */
-			if(method.getDeclaringClass().equals(IConfig.class)) {
+			if(declaringClass.equals(IConfig.class)) {
 				return method.invoke(this.impl.config, arguments);
 			}
 			
 			String methodName = method.getName();
+			if(declaringClass.equals(InternalConfigImpl.class)) {
+				return this.impl;
+			}
 			
 			/* TODO: Is there anything else we need to implement for it? */
-			if(method.getDeclaringClass().equals(Object.class)) {
+			if(declaringClass.equals(Object.class)) {
 				if(methodName.equals("toString")) {
 					return this.impl.proxiedInterface.getSimpleName() + this.impl.valueByName.toString();
 				}
 				
 				if(methodName.equals("hashCode")) {
+					/* TODO: Should this use "System.identityHashCode(proxy)" */
 					return this.impl.valueByName.hashCode();
 				}
 				
@@ -108,8 +154,11 @@ public class InterfaceConfigImpl {
 			}
 			
 			Map<String, Object> values = this.impl.valueByMethod;
-			if(method.getParameterCount() == 0 && values.containsKey(methodName)) {
-				return values.get(methodName);
+			if(method.getParameterCount() == 0) {
+				Object value = values.getOrDefault(methodName, EMPTY);
+				if(value != EMPTY) {
+					return value;
+				}
 			}
 			
 			return super.invoke(proxy, method, arguments);
@@ -127,6 +176,7 @@ public class InterfaceConfigImpl {
 	private final Class<?> proxiedInterface;
 	
 	private final IConfig config;
+	private final Object wrappedObject;
 	
 	/* 
 	 * TODO: Not sure if it makes more sense to use the Method reference as the key,
@@ -134,6 +184,7 @@ public class InterfaceConfigImpl {
 	 * worse performance, so I am just going to go with a simple String key and a
 	 * "Method#getParameterCount == 0" check to determine the method.
 	 */
+	/* TODO: Can we use an IdentityHashMap for this? */
 	private final Map<String, Object> valueByMethod;
 	
 	/**
@@ -151,11 +202,19 @@ public class InterfaceConfigImpl {
 		return InterfaceConfigImpl.getConfigAnnotation(this.proxiedInterface);
 	}
 	
-	public InterfaceConfigImpl(Class<?> interfaze, IConfig config) {
-		this(null, interfaze, config);
+	private InterfaceConfigImpl(Class<?> interfaze, IConfig config) {
+		this(null, interfaze, config, null);
 	}
 	
-	public InterfaceConfigImpl(InterfaceConfigImpl parent, Class<?> proxiedInterface, IConfig config) {
+	private InterfaceConfigImpl(InterfaceConfigImpl parent, Class<?> proxiedInterface, IConfig config) {
+		this(parent, proxiedInterface, config, null);
+	}
+	
+	private InterfaceConfigImpl(InterfaceConfigImpl parent, Class<?> proxiedInterface, IConfig config, Object wrappedObject) {
+		if(!proxiedInterface.isInterface()) {
+			throw new IllegalArgumentException(proxiedInterface + " is not an interface");
+		}
+		
 		this.parent = parent;
 		
 		this.proxiedInterface = proxiedInterface;
@@ -165,11 +224,10 @@ public class InterfaceConfigImpl {
 		this.proxy = this.proxy(this.invocationHandler);
 		
 		this.config = Objects.requireNonNull(config);
+		this.wrappedObject = wrappedObject;
 		
 		this.valueByMethod = new HashMap<>();
 		this.valueByName = new HashMap<>();
-		
-		this.computeValues();
 	}
 	
 	private Object proxy(InvocationHandler handler) {
@@ -289,10 +347,8 @@ public class InterfaceConfigImpl {
 		return false;
 	}
 	
-	/* 
-	 * TODO: Convert anonymous classes into the interface
-	 */
-	private Object convertDefaultValue(Naming naming, Class<?> type, Object value) {
+	/* TODO: Support Collections and Maps */
+	private Object convertDefaultValue(Class<?> type, Object value) {
 		if(value == null) {
 			return value;
 		}
@@ -310,58 +366,48 @@ public class InterfaceConfigImpl {
 		 * This means you can more easily deal with default values
 		 * in interfaces when you re-use the same one multiple times.
 		 * 
-		 * Example:
+		 * TODO: Test if this works properly for records.
 		 * 
-		 * interface Ratelimits {
-		 * 	default Ratelimit route() {
-		 * 		return new Ratelimit.Impl(5, TimeUnit.SECONDS.toMillis(5));
-		 * 	}
-		 * 
-		 * 	default Ratelimit anotherRoute() {
-		 * 		return new Ratelimit.Impl(10, TimeUnit.SECONDS.toMillis(5));
-		 * 	}
-		 * }
-		 * 
-		 * interface Ratelimit {
-		 * 
-		 * 	class Impl implements Ratelimit {
-		 * 		private final long count;
-		 * 		private final long time;
-		 * 
-		 * 		public Impl(long count, long time) {
-		 * 			this.count = count;
-		 * 			this.time = time;
-		 * 		}
-		 * 
-		 * 		@Override
-		 * 		public long count() {
-		 * 			return this.count;
-		 * 		}
-		 * 
-		 * 		@Override
-		 * 		public long time() {
-		 * 			return this.time;
-		 * 		}
-		 * 	}
-		 * 
-		 * 	long count();
-		 * 	long time();
-		 * }
+		 * See example below.
 		 */
-		Map<String, Object> values = new HashMap<>();
-		for(Method method : type.getMethods()) {
-			if(!this.isPropertyMethod(method)) {
-				continue;
+		/*
+		interface Ratelimits {
+			default Ratelimit route() {
+				return new Ratelimit.Impl(5, TimeUnit.SECONDS.toMillis(5));
 			}
 			
-			try {
-				values.put(this.getName(naming, method), method.invoke(value));
-			}catch(IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-				throw new RuntimeException("Failed to compute value for method: " + method + ", in class: " + value.getClass(), e);
+			default Ratelimit anotherRoute() {
+				return new Ratelimit.Impl(10, TimeUnit.SECONDS.toMillis(5));
 			}
 		}
 		
-		return InterfaceConfigImpl.createInternal(ConfigFactory.fromMap(values), this, type);
+		interface Ratelimit {
+		
+			class Impl implements Ratelimit {
+				private final long count;
+				private final long time;
+		
+				public Impl(long count, long time) {
+					this.count = count;
+					this.time = time;
+				}
+		
+				@Override
+				public long count() {
+					return this.count;
+				}
+		
+				@Override
+				public long time() {
+					return this.time;
+				}
+			}
+		
+			long count();
+			long time();
+		}
+		*/
+		return InterfaceConfigImpl.createInternal(ConfigFactory.empty(), value, this, type);
 	}
 	
 	private Object defaultValue(Class<?> type) {
@@ -444,13 +490,65 @@ public class InterfaceConfigImpl {
 		try {
 			return method.invoke(instance);
 		}catch(IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-			throw new RuntimeException("Failed to get default value", e);
+			throw new RuntimeException("Failed to get the default value for " + method, e);
+		}
+	}
+	
+	private void postLoadValue(Object object) {
+		if(object instanceof InternalConfigImpl) {
+			/*
+			 * We compute the values after adding the proxy object to the stored values,
+			 * this allows us to use self-referencing configs (through their parent),
+			 * see example below.
+			 */
+			/*
+			public interface Parent {
+				
+				public interface Child {
+					
+					@Parent
+					public Parent getParent();
+					
+					public default int getValue() {
+						Child defaultChild = this.getParent().getDefaultChild();
+						if(defaultChild == this) {
+							return 5;
+						}
+						 
+						return defaultChild.getValue();
+					}
+				}
+				
+				public Child getDefaultChild();
+				public Child getChild();
+			}
+			*/
+			
+			((InternalConfigImpl) object).__INTERNAL_IMPL__().computeValues();
+			
+			return;
+		}
+		
+		if(object instanceof Collection) {
+			for(Object value : (Collection<?>) object) {
+				this.postLoadValue(value);
+			}
+			
+			return;
+		}
+		
+		if(object instanceof Map) {
+			for(Object value : ((Map<?, ?>) object).values()) {
+				this.postLoadValue(value);
+			}
+			
+			return;
 		}
 	}
 	
 	private boolean isGetter(Method method) {
 		/* Would anyone ever have this? and why? is there anything we need to support? */
-		if(method.getReturnType() == void.class || method.getReturnType() == Void.class) {
+		if(DataTypeUtility.isVoid(method.getReturnType())) {
 			return false;
 		}
 		
@@ -525,7 +623,7 @@ public class InterfaceConfigImpl {
 		return true;
 	}
 	
-	private final void computeValues() {
+	private void computeValues() {
 		Config annotation = this.getConfigAnnotation();
 		
 		Naming naming;
@@ -539,6 +637,7 @@ public class InterfaceConfigImpl {
 		Set<Method> computeMethods = new HashSet<>();
 		
 		for(Method method : this.proxiedInterface.getMethods()) {
+			/* TODO: Is there anything we can do with static methods? */
 			if(Modifier.isStatic(method.getModifiers())) {
 				continue;
 			}
@@ -578,6 +677,23 @@ public class InterfaceConfigImpl {
 			}
 		}
 		
+		Map<String, Method> wrappedMethods;
+		if(this.wrappedObject != null) {
+			/*
+			 * This is somewhat "dangerous" (it just deviates from the behaviour of everything else)
+			 * as we can't ensure each method is only called once, unfortunately I don't really see any
+			 * way around it, we would just have to inform the user of the behaviour and to suggest they
+			 * only return the default values directly and don't do anything fancy like calling other methods
+			 * defined in the class, as long as the methods are not defined in the class you will still be able
+			 * to call methods in the config interface.
+			 */
+			wrappedMethods = Arrays.stream(this.wrappedObject.getClass().getDeclaredMethods())
+				.filter(this::isGetter)
+				.collect(Collectors.toMap(Method::getName, Function.identity()));
+		}else{
+			wrappedMethods = Collections.emptyMap();
+		}
+		
 		/*
 		 * This is necessary to ensure that only a single value is created from a method,
 		 * due to the fact that you can call other methods from the default implementation
@@ -591,18 +707,28 @@ public class InterfaceConfigImpl {
 		 */
 		this.invocationHandler.handler = (proxy, method, arguments) -> {
 			if(propertyMethods.remove(method)) {
+				Object instance;
+				if(wrappedMethods.containsKey(method.getName())) {
+					instance = this.wrappedObject;
+				}else{
+					instance = proxy;
+				}
+				
 				String name = this.getName(naming, method);
-				Object value = this.convertDefaultValue(naming, method.getReturnType(), this.computeValue(proxy, method, name));
+				Object value = this.convertDefaultValue(method.getReturnType(), this.computeValue(instance, method, name));
 				
 				this.valueByMethod.put(method.getName(), value);
 				this.valueByName.put(name, value);
 				
+				this.postLoadValue(value);
 				return value;
 			}
 			
 			if(computeMethods.remove(method)) {
 				Object value = method.invoke(proxy);
-				this.valueByMethod.put(method.getName(), this.convertDefaultValue(naming, method.getReturnType(), value));
+				this.valueByMethod.put(method.getName(), this.convertDefaultValue(method.getReturnType(), value));
+				
+				this.postLoadValue(value);
 				return value;
 			}
 			
@@ -614,11 +740,20 @@ public class InterfaceConfigImpl {
 				continue;
 			}
 			
+			Object instance;
+			if(wrappedMethods.containsKey(method.getName())) {
+				instance = this.wrappedObject;
+			}else{
+				instance = this.proxy;
+			}
+			
 			String name = this.getName(naming, method);
-			Object value = this.convertDefaultValue(naming, method.getReturnType(), this.computeValue(this.proxy, method, name));
+			Object value = this.convertDefaultValue(method.getReturnType(), this.computeValue(instance, method, name));
 			
 			this.valueByMethod.put(method.getName(), value);
 			this.valueByName.put(name, value);
+			
+			this.postLoadValue(value);
 		}
 		
 		for(Method method : new ArrayList<>(computeMethods)) {
@@ -628,12 +763,14 @@ public class InterfaceConfigImpl {
 			
 			Object value;
 			try {
-				value = this.convertDefaultValue(naming, method.getReturnType(), method.invoke(this.proxy));
+				value = this.convertDefaultValue(method.getReturnType(), method.invoke(this.proxy));
 			}catch(IllegalAccessException | IllegalArgumentException | InvocationTargetException e) {
-				throw new RuntimeException("Failed to compute the value", e);
+				throw new RuntimeException("Failed to compute the value for " + method, e);
 			}
 			
 			this.valueByMethod.put(method.getName(), value);
+			
+			this.postLoadValue(value);
 		}
 		
 		this.invocationHandler.handler = this.handler;

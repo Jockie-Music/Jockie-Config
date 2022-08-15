@@ -39,6 +39,10 @@ public class DataTypeUtility {
 		return type == Character.class || type == char.class;
 	}
 	
+	public static boolean isVoid(Class<?> type) {
+		return type == Void.class || type == void.class;
+	}
+	
 	public static Class<?> getBoxedClass(Class<?> type) {
 		if(!type.isPrimitive()) return type;
 		
