@@ -8,10 +8,10 @@
 * Template variables, `"x": "${y} z"`
 
 ## TODO
-[ ] Support for @Nullable and @NonNull to change the generated default values  
-[ ] Support for custom value converters with a new IConverter interface  
-[ ] Support for @Require in the interface based configs  
-[ ] Support for @Convert in the interface based configs, this would be used to have a single special converter for a particular property, the method would be private, accept the input value (of any type) and return the new value  
+- [ ] Support for @Nullable and @NonNull to change the generated default values  
+- [ ] Support for custom value converters with a new IConverter interface  
+- [ ] Support for @Require in the interface based configs  
+- [ ] Support for @Convert in the interface based configs, this would be used to have a single special converter for a particular property, the method would be private, accept the input value (of any type) and return the new value  
 
 ## How does it work?
 There are two primary components
